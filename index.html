@@ -35,11 +35,19 @@
   .param input[type=number] { width: 100%; box-sizing: border-box; }
   .note { font-size: 11px; color: #777; }
   code { font-size: 12px; }
+  #searchBox{position:relative;margin:0 0 8px}
+  #search{width:100%;box-sizing:border-box;padding:5px 8px;font:inherit}
+  #searchResults{position:absolute;left:0;right:0;top:100%;z-index:1200;margin:2px 0 0;padding:0;list-style:none;background:#fff;border:1px solid #ccc;border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,.2);max-height:260px;overflow-y:auto}
+  #searchResults li{padding:4px 8px;cursor:pointer}
+  #searchResults li.active{background:#e8f0fe}
+  #searchResults li.msg{color:#777;cursor:default}
+  #searchResults .hint{color:#999;font-size:11px;margin-left:6px}
 </style>
 </head>
 <body>
 <div id="sidebar">
   <h1>MK30 drone noise — Amazon BDL3, North Haven CT</h1>
+  <div id="searchBox"><input id="search" type="search" placeholder="Search an address…" autocomplete="off" spellcheck="false" aria-label="Search address" aria-controls="searchResults"><ul id="searchResults" role="listbox" hidden></ul></div>
   <div id="locationPanel"></div>
   <div id="settings"></div>
   <button id="resetBtn" type="button">Reset to FAA/Amazon defaults</button>

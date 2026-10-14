@@ -3,7 +3,7 @@
 # dependencies = ["osmium>=3.7", "pyshp>=2.3", "shapely>=2.0"]
 # ///
 """Bake residential building centroids (with 2020 Census population weights) near the Amazon
-BDL3 drone pad into data/homes.js.
+BDL3 drone pad into data/homes.js, and the OSM address index into data/addresses.js.
 
 Usage: uv run scripts/bake_homes.py [--refresh]
 """
@@ -12,6 +12,7 @@ import datetime
 import io
 import json
 import math
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -30,6 +31,7 @@ CACHE = Path.home() / ".cache" / "amazon-drones" / "connecticut-latest.osm.pbf"
 OUT = Path(__file__).resolve().parent.parent / "data" / "homes.js"
 CENSUS_URL = "https://www2.census.gov/geo/tiger/TIGER2020/TABBLOCK20/tl_2020_09_tabblock20.zip"
 CENSUS_CACHE = CACHE.parent / "tl_2020_09_tabblock20.zip"
+ADDR_OUT = OUT.parent / "addresses.js"
 
 R_EARTH = 6371008.8
 BUILDING_TYPES = {
@@ -68,12 +70,59 @@ def download(url: str, dest: Path, refresh: bool) -> None:
     print(f"Saved {dest} ({dest.stat().st_size / 1e6:.1f} MB)")
 
 
+def natkey(num: str) -> tuple:
+    m = re.match(r"(\d+)(.*)", num)
+    return (int(m[1]), m[2]) if m else (10**9, num)
+
+
 class HomeHandler(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.homes = []  # (way_id, lat, lon, floor)
+        self.addrs = []  # (city, street, housenumber, lat, lon)
+
+    def _add_address(self, tags, lat, lon):
+        x = R_EARTH * COS_LAT0 * (lon - LON0) * DEG
+        y = R_EARTH * (lat - LAT0) * DEG
+        if math.hypot(x, y) > RADIUS_M:
+            return
+        self.addrs.append((tags.get("addr:city", ""), tags["addr:street"],
+                           tags["addr:housenumber"], lat, lon))
+
+    def node(self, n):
+        tags = n.tags
+        if "addr:housenumber" not in tags or "addr:street" not in tags:
+            return
+        loc = n.location
+        if not loc.valid():
+            return
+        self._add_address(tags, loc.lat, loc.lon)
+
+    def _capture_address(self, w):
+        tags = w.tags
+        if "addr:housenumber" not in tags or "addr:street" not in tags:
+            return
+        locs = []
+        try:
+            for n in w.nodes:
+                loc = n.location
+                if not loc.valid():
+                    return
+                locs.append((loc.lat, loc.lon))
+        except osmium.InvalidLocationError:
+            return
+        if not locs:
+            return
+        if w.is_closed():
+            locs = locs[:-1]
+        if not locs:
+            return
+        lat = sum(p[0] for p in locs) / len(locs)
+        lon = sum(p[1] for p in locs) / len(locs)
+        self._add_address(tags, lat, lon)
 
     def way(self, w):
+        self._capture_address(w)
         tags = w.tags
         btype = tags.get("building")
         if btype not in BUILDING_TYPES:
@@ -223,6 +272,28 @@ def main() -> None:
         print("WARNING: unexpected home count")
     if not 150000 <= stats["assigned"] <= 450000:
         print("WARNING: unexpected population")
+
+    addrs = sorted(h.addrs, key=lambda a: (a[0], a[1], natkey(a[2])))
+    streets = {}
+    count_addr = 0
+    prev = None
+    for city, street, num, lat, lon in addrs:
+        key = (city, street, num)
+        if key == prev:
+            continue
+        prev = key
+        entry = streets.setdefault((street, city), [street, city, [], []])
+        entry[2].append(num)
+        entry[3].append(round((lat - LAT0) * 1e5))
+        entry[3].append(round((lon - LON0) * 1e5))
+        count_addr += 1
+    addr_payload = {"origin": [LAT0, LON0], "scale": 100000, "count": count_addr,
+                    "s": list(streets.values())}
+    ADDR_OUT.write_text(
+        header + f"window.ADDRESSES={json.dumps(addr_payload, separators=(',', ':'))};\n",
+        encoding="utf-8")
+    print(f"Addresses: {count_addr} on {len(streets)} streets")
+    print(f"Wrote {ADDR_OUT} ({ADDR_OUT.stat().st_size / 1e6:.2f} MB)")
 
 
 if __name__ == "__main__":

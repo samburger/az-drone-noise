@@ -381,11 +381,16 @@
     elLocation.innerHTML = html;
   }
 
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   function renderLocation() {
     var dist = Math.hypot(receiver.x, receiver.y);
     var inside = dist <= vals.serviceRadiusMi * 1609.344;
     var st = analysis ? analysis.stats : {};
     var html = '<h3 style="margin:8px 0 4px">Location</h3>' +
+      (receiver.label ? '<div style="font-size:13px;font-weight:700;margin-bottom:2px">' + esc(receiver.label) + '</div>' : '') +
       '<div style="font-size:12px;color:#6e7781;margin-bottom:6px">' + receiver.lat.toFixed(5) + ', ' + receiver.lon.toFixed(5) + '</div>' +
       '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
       row('Distance to pad', fmtNum(dist / 1000, 2) + ' km') +
@@ -431,6 +436,7 @@
 
   function clearReceiver() {
     receiver = null;
+    elSearch.value = '';
     analysis = null;
     if (receiverMarker) { map.removeLayer(receiverMarker); receiverMarker = null; }
     chart.style.display = 'none';
@@ -439,6 +445,192 @@
 
   map.on('click', function (e) {
     setReceiver(e.latlng.lat, e.latlng.lng);
+    elSearch.value = '';
+  });
+
+  // ---------------------------------------------------------------- search
+  var elSearch = $('search');
+  var elResults = $('searchResults');
+  var ABBR = { rd: 'road', ln: 'lane', ct: 'court', blvd: 'boulevard', tpke: 'turnpike', pkwy: 'parkway', hwy: 'highway', hts: 'heights', mt: 'mount', n: 'north', s: 'south', e: 'east', w: 'west' };
+  var MAX_RESULTS = 8;
+  var addrState = 'idle'; // 'idle' | 'loading' | 'ready' | 'error'
+  var addrIndex = [];
+  var searchResults = [];
+  var searchActive = -1;
+
+  function buildAddrIndex() {
+    var A = window.ADDRESSES;
+    addrIndex = A.s.map(function (r) {
+      var nums = r[2];
+      return {
+        street: r[0],
+        town: r[1] || '',
+        words: (r[0] + ' ' + (r[1] || '')).toLowerCase().split(/\s+/),
+        nums: nums,
+        numsLc: nums.map(function (n) { return String(n).toLowerCase(); }),
+        d: r[3]
+      };
+    });
+  }
+
+  function loadAddresses() {
+    if (addrState !== 'idle') return;
+    addrState = 'loading';
+    var s = document.createElement('script');
+    s.src = 'data/addresses.js';
+    s.onload = function () {
+      if (window.ADDRESSES) { buildAddrIndex(); addrState = 'ready'; } else addrState = 'error';
+      if (document.activeElement === elSearch) runSearch();
+    };
+    s.onerror = function () {
+      addrState = 'error';
+      if (document.activeElement === elSearch) runSearch();
+    };
+    document.head.appendChild(s);
+  }
+
+  function hideResults() {
+    elResults.hidden = true;
+    elResults.textContent = '';
+    searchResults = [];
+    searchActive = -1;
+  }
+
+  function showMessage(text) {
+    elResults.textContent = '';
+    searchResults = [];
+    searchActive = -1;
+    var li = document.createElement('li');
+    li.className = 'msg';
+    li.textContent = text;
+    elResults.appendChild(li);
+    elResults.hidden = false;
+  }
+
+  function wordMatches(entry, t) {
+    var a = ABBR[t];
+    for (var i = 0; i < entry.words.length; i++) {
+      var w = entry.words[i];
+      if (w.indexOf(t) === 0 || (a && w.indexOf(a) === 0)) return true;
+    }
+    return false;
+  }
+
+  function cmpStr(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+
+  function findAddresses(numTok, words) {
+    var A = window.ADDRESSES;
+    var out = [];
+    var matched = [];
+    var i, k;
+    for (i = 0; i < addrIndex.length; i++) {
+      var ok = true;
+      for (var j = 0; j < words.length; j++) {
+        if (!wordMatches(addrIndex[i], words[j])) { ok = false; break; }
+      }
+      if (ok) matched.push(addrIndex[i]);
+    }
+    function at(e, k) {
+      return [A.origin[0] + e.d[2 * k] / A.scale, A.origin[1] + e.d[2 * k + 1] / A.scale];
+    }
+    if (numTok) {
+      for (i = 0; i < matched.length; i++) {
+        var e = matched[i];
+        for (k = 0; k < e.numsLc.length; k++) {
+          if (e.numsLc[k].indexOf(numTok) === 0) out.push({ e: e, k: k, exact: e.numsLc[k] === numTok });
+        }
+      }
+      out.sort(function (a, b) {
+        if (a.exact !== b.exact) return a.exact ? -1 : 1;
+        return cmpStr(a.e.street, b.e.street) || cmpStr(a.e.town, b.e.town) ||
+          ((parseInt(a.e.nums[a.k], 10) || 0) - (parseInt(b.e.nums[b.k], 10) || 0));
+      });
+      return out.slice(0, MAX_RESULTS).map(function (r) {
+        var ll = at(r.e, r.k);
+        return { label: r.e.nums[r.k] + ' ' + r.e.street + (r.e.town ? ', ' + r.e.town : ''), hint: false, lat: ll[0], lon: ll[1] };
+      });
+    }
+    var prefix = words.join(' ');
+    var items = matched.map(function (e) { return { e: e, pre: e.street.toLowerCase().indexOf(prefix) === 0 }; });
+    items.sort(function (a, b) {
+      if (a.pre !== b.pre) return a.pre ? -1 : 1;
+      return cmpStr(a.e.street, b.e.street) || cmpStr(a.e.town, b.e.town);
+    });
+    return items.slice(0, MAX_RESULTS).map(function (r) {
+      var ll = at(r.e, Math.floor(r.e.nums.length / 2));
+      return { label: r.e.street + (r.e.town ? ', ' + r.e.town : ''), hint: true, lat: ll[0], lon: ll[1] };
+    });
+  }
+
+  function setActive(i) {
+    searchActive = i;
+    var lis = elResults.children;
+    for (var n = 0; n < lis.length; n++) lis[n].classList.toggle('active', n === i);
+    if (lis[i] && lis[i].scrollIntoView) lis[i].scrollIntoView({ block: 'nearest' });
+  }
+
+  function runSearch() {
+    var q = elSearch.value.toLowerCase().replace(/[.,#]/g, ' ').trim();
+    var toks = q.split(/\s+/);
+    var numTok = null;
+    if (/^\d/.test(toks[0])) numTok = toks.shift();
+    var words = toks.filter(Boolean);
+    if (q.length < 2 || !words.length) { hideResults(); return; }
+    if (addrState === 'loading' || addrState === 'idle') { showMessage('Loading addresses…'); return; }
+    if (addrState === 'error') { showMessage('data/addresses.js not found — run: uv run scripts/bake_homes.py'); return; }
+    searchResults = findAddresses(numTok, words);
+    searchActive = -1;
+    if (!searchResults.length) { showMessage('No matching address'); return; }
+    elResults.textContent = '';
+    searchResults.forEach(function (r, i) {
+      var li = document.createElement('li');
+      li.setAttribute('role', 'option');
+      li.setAttribute('data-i', String(i));
+      li.textContent = r.label;
+      if (r.hint) {
+        var h = document.createElement('span');
+        h.className = 'hint';
+        h.textContent = 'street';
+        li.appendChild(h);
+      }
+      elResults.appendChild(li);
+    });
+    elResults.hidden = false;
+  }
+
+  function selectResult(i) {
+    var r = searchResults[i];
+    if (!r) return;
+    map.setView([r.lat, r.lon], Math.max(map.getZoom(), 17));
+    setReceiver(r.lat, r.lon, r.label);
+    elSearch.value = r.label;
+    hideResults();
+  }
+
+  elSearch.addEventListener('focus', function () { loadAddresses(); runSearch(); });
+  elSearch.addEventListener('input', function () { loadAddresses(); runSearch(); });
+  elSearch.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (elResults.hidden) runSearch();
+      if (!searchResults.length) return;
+      var n = searchResults.length;
+      setActive(e.key === 'ArrowDown' ? Math.min(searchActive + 1, n - 1) : Math.max(searchActive - 1, 0));
+    } else if (e.key === 'Enter') {
+      if (!searchResults.length) return;
+      e.preventDefault();
+      selectResult(searchActive >= 0 ? searchActive : 0);
+    } else if (e.key === 'Escape') {
+      hideResults();
+      elSearch.blur();
+    }
+  });
+  elSearch.addEventListener('blur', hideResults);
+  elResults.addEventListener('mousedown', function (e) {
+    var li = e.target.closest ? e.target.closest('li') : null;
+    if (!li) return;
+    e.preventDefault();
+    if (li.getAttribute('data-i') !== null) selectResult(parseInt(li.getAttribute('data-i'), 10));
   });
 
   // ------------------------------------------------------------------ chart
