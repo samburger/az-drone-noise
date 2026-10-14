@@ -1,0 +1,2 @@
+# Generated data (scripts/bake_homes.py, scripts/summarize.js): hide from diffs and language stats.
+data/*.js linguist-generated=true -diff
