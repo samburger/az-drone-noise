@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MK30 drone noise — Amazon BDL3, North Haven CT</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body { display: flex; height: 100vh; overflow: hidden; font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #222; }
+  #sidebar { width: 360px; flex: 0 0 360px; overflow-y: auto; padding: 12px 14px; box-sizing: border-box; border-right: 1px solid #ddd; background: #fafafa; }
+  #sidebar h1 { font-size: 16px; margin: 0 0 10px; }
+  #sidebar h2 { font-size: 14px; margin: 12px 0 6px; }
+  #mapWrap { position: relative; flex: 1 1 auto; min-width: 0; }
+  #map { position: absolute; inset: 0; }
+  #homesCanvas, #fxCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 450; }
+  #playbar { position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 1000; background: rgba(255,255,255,0.93); border-radius: 6px; box-shadow: 0 1px 5px rgba(0,0,0,0.3); padding: 6px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; pointer-events: auto; }
+  #playBtn { min-width: 64px; }
+  #scrub { flex: 1 1 200px; }
+  #clock { font: bold 15px ui-monospace, monospace; min-width: 48px; }
+  #chart { display: none; width: 100%; height: 110px; flex-basis: 100%; cursor: crosshair; }
+  #error { display: none; position: absolute; top: 10px; left: 60px; right: 60px; z-index: 1100; background: #fde2e1; color: #8a1c1c; border: 1px solid #e5a3a0; border-radius: 4px; padding: 8px 12px; font-weight: 600; }
+  #settings details { margin: 6px 0; border: 1px solid #e3e3e3; border-radius: 4px; padding: 4px 8px; background: #fff; }
+  #settings summary { font-weight: 600; cursor: pointer; }
+  #resetBtn, #clearBtn { margin: 8px 0; }
+  #about { margin-top: 10px; }
+  #about summary { font-weight: 600; cursor: pointer; }
+  .stat { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 2px 0; border-bottom: 1px dotted #e3e3e3; }
+  .stat > :last-child { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .big { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .chip { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 6px; border: 1px solid rgba(0,0,0,0.2); }
+  .param { display: grid; grid-template-columns: 1fr 70px; gap: 2px 6px; align-items: center; margin: 6px 0; }
+  .param > label { grid-column: 1 / -1; }
+  .param input[type=range] { width: 100%; }
+  .param input[type=number] { width: 100%; box-sizing: border-box; }
+  .note { font-size: 11px; color: #777; }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h1>MK30 drone noise — Amazon BDL3, North Haven CT</h1>
+  <div id="locationPanel"></div>
+  <div id="settings"></div>
+  <button id="resetBtn" type="button">Reset to FAA/Amazon defaults</button>
+</div>
+<div id="mapWrap">
+  <div id="map"></div>
+  <canvas id="homesCanvas"></canvas>
+  <canvas id="fxCanvas"></canvas>
+  <div id="error"></div>
+  <div id="playbar">
+    <button id="playBtn" type="button">▶ Play</button>
+    <select id="speedSel">
+      <option value="60">60×</option>
+      <option value="120">120×</option>
+      <option value="300">300×</option>
+      <option value="600" selected>600×</option>
+      <option value="1200">1200×</option>
+      <option value="3600">3600×</option>
+    </select>
+    <input id="scrub" type="range" min="0" max="1000" step="1" value="0">
+    <span id="clock">06:00</span>
+    <span>Airborne now: <span id="airborne">0</span></span>
+    <canvas id="chart" height="110"></canvas>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="data/homes.js"></script>
+<script src="noise.js"></script>
+<script src="sim.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
